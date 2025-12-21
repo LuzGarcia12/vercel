@@ -1,65 +1,78 @@
-import Image from "next/image";
+import BoatList, { type Boat } from "./components/BoatList";
 
-export default function Home() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+function extractArray(data: any): any[] {
+  if (Array.isArray(data)) return data;
+
+  // casos típicos n8n
+  if (data && Array.isArray(data.items)) return data.items;
+  if (data && Array.isArray(data.data)) return data.data;
+
+  if (data && typeof data === "object") return [data];
+  return [];
+}
+
+function mapBoat(r: any): Boat {
+  return {
+    id: r["Id"] ?? r["id"],
+    name: r["Boat Name"] ?? r["name"],
+    rating: r["Rating"] ?? r["rating"],
+    model: r["Model"] ?? r["model"],
+    serviceType: r["Service Type"] ?? r["serviceType"],
+    boatType: r["Boat Type"] ?? r["boatType"],
+    base: r["Base"] ?? r["base"],
+    country: r["Country"] ?? r["country"],
+    lengthFt: r["Lenght (ft)"] ?? r["Length (ft)"] ?? r["lengthFt"] ?? r["length_ft"],
+    image: r["Image"] ?? r["Main Image"] ?? r["image"],
+    defaultCurrency: r["Currency"] ?? r["currency"],
+    defaultPrice: r["Default Price"] ?? r["defaultPrice"],
+  };
+}
+
+async function postJson(url: string, body: any) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+    cache: "no-store",
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    console.log("webhook error", res.status, text.slice(0, 300));
+    return null;
+  }
+
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getBoats(): Promise<Boat[]> {
+  const url = process.env.WEBHOOK_URL;
+  if (!url) return [];
+
+  const data = await postJson(url, {});
+  const raw = extractArray(data);
+  return raw.map(mapBoat);
+}
+
+async function getItineraries(): Promise<{ id: string; title: string }[]> {
+  const url = process.env.WEBHOOK_ITINERARIES_URL;
+  if (!url) return [];
+
+  const data = await postJson(url, {});
+  const raw = extractArray(data);
+  return raw
+    .map((r: any) => ({
+      id: String(r.id ?? r["Id"]),
+      title: String(r.title ?? r["Title"] ?? r["Name"] ?? "Itinerary"),
+    }))
+    .filter((x) => x.id && x.title);
+}
+
+export default async function Home() {
+  const [boats, itineraries] = await Promise.all([getBoats(), getItineraries()]);
+  return <BoatList boats={boats} itineraries={itineraries} />;
 }
