@@ -1,9 +1,18 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 
+function makeRequestId() {
+  try {
+    return randomUUID();
+  } catch {
+    return String(Date.now());
+  }
+}
+
 export async function POST(req: Request) {
-  const requestId = (globalThis.crypto as any)?.randomUUID?.() ?? String(Date.now());
+  const requestId = makeRequestId();
 
   try {
     const body = await req.json().catch(() => ({}));
@@ -26,17 +35,18 @@ export async function POST(req: Request) {
       body: JSON.stringify({ boatIds }),
     });
 
-    const text = await upstream.text();
+    const text = await upstream.text().catch(() => "");
     let data: any = text;
     try {
       data = text ? JSON.parse(text) : null;
-    } catch {}
+    } catch {
+      // si no es json, dejamos text
+    }
 
     console.log(
-      `[${requestId}] n8n status=${upstream.status} ok=${upstream.ok} body=${text.slice(0, 250)}`
+      `[${requestId}] n8n status=${upstream.status} ok=${upstream.ok} body=${String(text).slice(0, 250)}`
     );
 
-    // importante: devolvemos el status real de n8n (así ves si es 404, 500, etc.)
     return NextResponse.json(
       { ok: upstream.ok, upstreamStatus: upstream.status, data, requestId },
       { status: upstream.status }

@@ -11,6 +11,25 @@ function extractArray(data: any): any[] {
   return [];
 }
 
+// attachments de NocoDB: array con { url, signedUrl, thumbnails... }
+function pickAttachmentUrl(val: any): string | undefined {
+  const a = Array.isArray(val) ? val[0] : val;
+  if (!a) return undefined;
+
+  const thumb =
+    a?.thumbnails?.card_cover?.signedUrl ||
+    a?.thumbnails?.small?.signedUrl ||
+    a?.thumbnails?.tiny?.signedUrl;
+
+  return thumb || a?.signedUrl || a?.url;
+}
+
+function pickPdfUrl(val: any): string | undefined {
+  const a = Array.isArray(val) ? val[0] : val;
+  if (!a) return undefined;
+  return a?.signedUrl || a?.url;
+}
+
 function mapBoat(r: any): Boat {
   return {
     id: r["Id"] ?? r["id"],
@@ -21,8 +40,19 @@ function mapBoat(r: any): Boat {
     boatType: r["Boat Type"] ?? r["boatType"],
     base: r["Base"] ?? r["base"],
     country: r["Country"] ?? r["country"],
-    lengthFt: r["Lenght (ft)"] ?? r["Length (ft)"] ?? r["lengthFt"] ?? r["length_ft"],
-    image: r["Image"] ?? r["Main Image"] ?? r["image"],
+    lengthFt:
+      r["Lenght (ft)"] ??
+      r["Length (ft)"] ??
+      r["lengthFt"] ??
+      r["length_ft"],
+
+    // importante: antes podía venir array; ahora lo normalizamos a string url
+    image: pickAttachmentUrl(r["Image"] ?? r["Main Image"] ?? r["image"]),
+
+    // opcionales útiles para futuro (no rompe nada)
+    pdfPhotosUrl: pickPdfUrl(r["Pdf con fotos"]),
+    webUrl: r["Web"] ?? r["web"],
+
     defaultCurrency: r["Currency"] ?? r["currency"],
     defaultPrice: r["Default Price"] ?? r["defaultPrice"],
   };

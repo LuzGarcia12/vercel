@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 
+function makeRequestId() {
+  try {
+    // node 18+ trae randomUUID
+    return randomUUID();
+  } catch {
+    // fallback simple
+    return String(Date.now());
+  }
+}
+
 export async function POST(req: Request) {
-  const requestId =
-    (globalThis.crypto as any)?.randomUUID?.() ?? String(Date.now());
+  const requestId = makeRequestId();
 
   try {
     const body = await req.json().catch(() => null);
@@ -27,7 +37,9 @@ export async function POST(req: Request) {
     let data: any = text;
     try {
       data = text ? JSON.parse(text) : null;
-    } catch {}
+    } catch {
+      // si no es json, dejamos text
+    }
 
     return NextResponse.json(
       { ok: upstream.ok, upstreamStatus: upstream.status, data, requestId },

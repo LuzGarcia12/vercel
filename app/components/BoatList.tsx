@@ -12,16 +12,18 @@ export type Boat = {
   base?: string;
   country?: string;
   lengthFt?: number | string;
+
   image?: string;
 
-  // opcional si ya lo tenés en DB
+  pdfPhotosUrl?: string;
+  webUrl?: string;
+
   defaultCurrency?: string;
   defaultPrice?: number;
 };
 
 type Props = {
   boats: Boat[];
-  // opcional: si ya traés itinerarios desde server
   itineraries?: { id: string; title: string }[];
 };
 
@@ -67,6 +69,44 @@ function toKey(b: Boat, idx: number) {
   return String(b.id ?? `idx-${idx}`);
 }
 
+/// parsea bien: "1.200" "1.200,50" "1200,50" "1200.50" "2.000" -> 2000
+function parseMoney(input: string): number {
+  let s = String(input ?? "").trim();
+  if (!s) return NaN;
+
+  s = s.replace(/[^\d.,-]/g, "").replace(/\s/g, "");
+
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+
+  if (hasComma && hasDot) {
+    const lastComma = s.lastIndexOf(",");
+    const lastDot = s.lastIndexOf(".");
+    if (lastComma > lastDot) {
+      return Number(s.replace(/\./g, "").replace(",", "."));
+    } else {
+      return Number(s.replace(/,/g, ""));
+    }
+  }
+
+  if (hasComma) return Number(s.replace(/\./g, "").replace(",", "."));
+
+  if (hasDot) {
+    const thousandsLike = /^-?\d{1,3}(\.\d{3})+$/;
+    if (thousandsLike.test(s)) return Number(s.replace(/\./g, ""));
+    return Number(s);
+  }
+
+  return Number(s);
+}
+
+// validación simple de email (suficiente para UI)
+function isValidEmail(email: string) {
+  const e = email.trim();
+  if (!e) return true; // si está vacío, lo consideramos ok
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
 export default function BoatList({ boats, itineraries = [] }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -75,6 +115,10 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
   const [currency, setCurrency] = useState<string>("EUR");
   const [brokerMessage, setBrokerMessage] = useState<string>("");
   const [selectedItineraries, setSelectedItineraries] = useState<Set<string>>(new Set());
+
+  // ✅ nuevos inputs (cliente)
+  const [clientName, setClientName] = useState<string>("");
+  const [clientEmail, setClientEmail] = useState<string>("");
 
   // precios por barco
   const [priceById, setPriceById] = useState<Record<string, string>>({});
@@ -111,6 +155,9 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
     setPriceById({});
     setSelectedItineraries(new Set());
     setSendResult(null);
+    // opcional: no limpiar nombre/email para no reescribirlos
+    // setClientName("");
+    // setClientEmail("");
   }
 
   function setPrice(id: string, value: string) {
@@ -126,14 +173,16 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
   }
 
   function validateProposal() {
-    if (selectedIds.length === 0) return "no seleccionaste ningún barco";
+    if (selectedIds.length === 0) return "No seleccionaste ningún barco.";
 
-    // si querés obligar precio por barco:
+    // ✅ valida email si está cargado
+    if (!isValidEmail(clientEmail)) return "El email del cliente no es válido.";
+
     for (const id of selectedIds) {
       const raw = (priceById[id] ?? "").trim();
-      if (!raw) return `faltó precio para el barco id=${id}`;
-      const n = Number(raw);
-      if (!Number.isFinite(n) || n <= 0) return `precio inválido para el barco id=${id}`;
+      if (!raw) return `Faltó el precio para el barco id=${id}.`;
+      const n = parseMoney(raw);
+      if (!Number.isFinite(n) || n <= 0) return `Precio inválido para el barco id=${id}.`;
     }
 
     return null;
@@ -148,13 +197,20 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
 
     const boatsPayload = selectedIds.map((id) => ({
       id,
-      price: Number(priceById[id]),
+      price: parseMoney(priceById[id]),
       currency,
     }));
 
     const payload = {
       language,
       boats: boatsPayload,
+
+      // ✅ nuevos datos del cliente
+      client: {
+        name: clientName.trim() || null,
+        email: clientEmail.trim() || null,
+      },
+
       cta: {
         messageFromBroker: brokerMessage,
         clientNoteEnabled: true,
@@ -162,8 +218,7 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
       itineraries: Array.from(selectedItineraries).map((id) => ({ id })),
       meta: {
         source: "next-ui",
-        proposalId:
-          (globalThis.crypto as any)?.randomUUID?.() ?? String(Date.now()),
+        proposalId: (globalThis.crypto as any)?.randomUUID?.() ?? String(Date.now()),
         timestamp: new Date().toISOString(),
       },
     };
@@ -181,13 +236,15 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
       const data = await res.json().catch(() => null);
       setSendResult(data);
     } catch (e: any) {
-      setSendResult({ ok: false, error: e?.message ?? "error creando propuesta" });
+      setSendResult({ ok: false, error: e?.message ?? "Error creando propuesta." });
     } finally {
       setSending(false);
     }
   }
 
   const gridCols = "44px 72px 260px 120px 260px 170px 170px 220px 160px 120px";
+
+  const emailOk = isValidEmail(clientEmail);
 
   return (
     <main style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
@@ -196,7 +253,6 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
         <span style={{ color: "#6b7280" }}>({boats.length})</span>
       </div>
 
-      {/* actions */}
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button
           onClick={selectAll}
@@ -227,7 +283,6 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
         </span>
       </div>
 
-      {/* layout: tabla + panel */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 16, marginTop: 16 }}>
         {/* tabla */}
         <div
@@ -300,15 +355,7 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
                           background: "#f9fafb",
                         }}
                       >
-                        {/* placeholder fijo: no mostramos imagen en la lista */}
-                    <div
-                        style={{
-                          width: "100%",
-                        height: "100%",
-                        background: "#f9fafb",
-                        }}
-                        />
-
+                        <div style={{ width: "100%", height: "100%", background: "#f9fafb" }} />
                       </div>
                     </div>
 
@@ -331,7 +378,14 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
                     </div>
 
                     <div style={{ minWidth: 0 }} title={b.model ?? ""}>
-                      <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "block" }}>
+                      <span
+                        style={{
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          display: "block",
+                        }}
+                      >
                         {b.model ?? "-"}
                       </span>
                     </div>
@@ -362,7 +416,7 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
           </div>
         </div>
 
-        {/* panel propuesta */}
+        {/* panel */}
         <aside
           style={{
             border: "1px solid #e5e7eb",
@@ -375,6 +429,46 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
           }}
         >
           <div style={{ fontWeight: 900, marginBottom: 8 }}>Crear propuesta</div>
+
+          {/* ✅ nuevos campos */}
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginTop: 10 }}>
+            Nombre del cliente (opcional)
+          </label>
+          <input
+            value={clientName}
+            onChange={(e) => setClientName(e.target.value)}
+            placeholder="Nombre y apellido"
+            style={{
+              width: "100%",
+              padding: "10px 10px",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              marginTop: 6,
+            }}
+          />
+
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginTop: 10 }}>
+            Email del cliente (opcional)
+          </label>
+          <input
+            value={clientEmail}
+            onChange={(e) => setClientEmail(e.target.value)}
+            placeholder="cliente@dominio.com"
+            inputMode="email"
+            style={{
+              width: "100%",
+              padding: "10px 10px",
+              borderRadius: 10,
+              border: `1px solid ${emailOk ? "#e5e7eb" : "#fecaca"}`,
+              marginTop: 6,
+              outline: "none",
+            }}
+          />
+          {!emailOk && (
+            <div style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>
+              Email inválido.
+            </div>
+          )}
 
           <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginTop: 10 }}>
             Idioma
@@ -413,12 +507,12 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
           />
 
           <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginTop: 10 }}>
-            Mensaje intro (para la propuesta)
+            Mensaje inicial (para la propuesta)
           </label>
           <textarea
             value={brokerMessage}
             onChange={(e) => setBrokerMessage(e.target.value)}
-            placeholder="hola! te comparto una selección…"
+            placeholder="Hola, te comparto una selección de embarcaciones…"
             rows={4}
             style={{
               width: "100%",
@@ -431,12 +525,14 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
           />
 
           <div style={{ marginTop: 12, fontSize: 12, color: "#6b7280" }}>
-            precios por barco (obligatorio)
+            Precios por barco (obligatorio)
           </div>
 
           <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
             {selectedBoats.length === 0 ? (
-              <div style={{ color: "#9ca3af", fontSize: 13 }}>seleccioná 1+ barcos para setear precios</div>
+              <div style={{ color: "#9ca3af", fontSize: 13 }}>
+                Seleccioná 1+ barcos para cargar precios.
+              </div>
             ) : (
               selectedBoats.map((b) => {
                 const id = String(b.id);
@@ -455,7 +551,7 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
                     <input
                       value={priceById[id] ?? ""}
                       onChange={(e) => setPrice(id, e.target.value)}
-                      placeholder="precio"
+                      placeholder="Precio"
                       inputMode="decimal"
                       style={{
                         width: "100%",
@@ -473,18 +569,14 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
           {itineraries.length > 0 && (
             <>
               <div style={{ marginTop: 12, fontSize: 12, color: "#6b7280" }}>
-                itinerarios a incluir (opcional)
+                Itinerarios a incluir (opcional)
               </div>
               <div style={{ marginTop: 8, display: "grid", gap: 6, maxHeight: 180, overflow: "auto" }}>
                 {itineraries.map((it) => {
                   const checked = selectedItineraries.has(it.id);
                   return (
                     <label key={it.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleItinerary(it.id)}
-                      />
+                      <input type="checkbox" checked={checked} onChange={() => toggleItinerary(it.id)} />
                       <span>{it.title}</span>
                     </label>
                   );
@@ -495,16 +587,16 @@ export default function BoatList({ boats, itineraries = [] }: Props) {
 
           <button
             onClick={createProposal}
-            disabled={sending || selectedIds.length === 0}
+            disabled={sending || selectedIds.length === 0 || !emailOk}
             style={{
               marginTop: 14,
               width: "100%",
               padding: "10px 12px",
               borderRadius: 12,
               border: "1px solid #111827",
-              background: sending || selectedIds.length === 0 ? "#f3f4f6" : "#111827",
-              color: sending || selectedIds.length === 0 ? "#6b7280" : "white",
-              cursor: sending || selectedIds.length === 0 ? "not-allowed" : "pointer",
+              background: sending || selectedIds.length === 0 || !emailOk ? "#f3f4f6" : "#111827",
+              color: sending || selectedIds.length === 0 || !emailOk ? "#6b7280" : "white",
+              cursor: sending || selectedIds.length === 0 || !emailOk ? "not-allowed" : "pointer",
               fontWeight: 800,
             }}
           >
